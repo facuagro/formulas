@@ -1,0 +1,156 @@
+import sys
+import os
+import pandas as pd
+from PyQt5.QtWidgets import (
+    QApplication, QMainWindow, QFileDialog, QVBoxLayout, QWidget, QPushButton, QLabel, 
+    QComboBox, QTableWidget, QTableWidgetItem, QDialog, QLineEdit, QFormLayout, QDialogButtonBox
+)
+from PyQt5.QtCore import Qt, QDir
+
+class LoginDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle('Inicio de Sesión')
+        self.setGeometry(100, 100, 300, 150)
+        
+        self.username_input = QLineEdit()
+        self.password_input = QLineEdit()
+        self.password_input.setEchoMode(QLineEdit.Password)
+        
+        layout = QFormLayout()
+        layout.addRow('Usuario:', self.username_input)
+        layout.addRow('Contraseña:', self.password_input)
+        
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        
+        layout.addWidget(button_box)
+        self.setLayout(layout)
+        
+    def get_credentials(self):
+        return self.username_input.text(), self.password_input.text()
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle('Gestión de Fórmulas')
+        self.setGeometry(100, 100, 800, 600)
+        
+        self.initUI()
+        self.current_user = None
+
+    def initUI(self):
+        self.login()  # Llama al diálogo de inicio de sesión al iniciar
+        
+        layout = QVBoxLayout()
+
+        self.comboBox = QComboBox()
+        self.loadButton = QPushButton('Cargar Fórmulas')
+        self.saveButton = QPushButton('Guardar Cantidades')
+        self.tableWidget = QTableWidget()
+
+        self.loadButton.clicked.connect(self.loadFormulas)
+        self.saveButton.clicked.connect(self.saveQuantities)
+        self.comboBox.currentIndexChanged.connect(self.displayFormula)
+
+        layout.addWidget(QLabel('Selecciona una fórmula:'))
+        layout.addWidget(self.comboBox)
+        layout.addWidget(self.loadButton)
+        layout.addWidget(self.tableWidget)
+        layout.addWidget(self.saveButton)
+
+        container = QWidget()
+        container.setLayout(layout)
+        self.setCentralWidget(container)
+
+        self.formulas = {}
+        self.current_formula = None
+
+    def login(self):
+        dialog = LoginDialog(self)
+        if dialog.exec_() == QDialog.Accepted:
+            username, password = dialog.get_credentials()
+            if self.authenticate(username, password):
+                print(f"Usuario {username} autenticado.")
+            else:
+                print("Credenciales incorrectas.")
+                sys.exit()
+
+    def authenticate(self, username, password):
+        # Aquí puedes agregar tu lógica de autenticación
+        # Ejemplo simple: admin tiene una contraseña
+        if username == 'admin' and password == 'admin_password':
+            self.current_user = 'admin'
+            return True
+        elif username == 'operador' and password == '':
+            self.current_user = 'operador'
+            return True
+        return False
+
+    def loadFormulas(self):
+        file_dialog = QFileDialog()
+        file_dialog.setFileMode(QFileDialog.ExistingFiles)
+        file_dialog.setNameFilters(["Excel files (*.xlsx)"])
+        file_dialog.setFilter(QDir.Files)
+        file_dialog.setOption(QFileDialog.DontUseNativeDialog, True)
+        if file_dialog.exec_():
+            file_paths = file_dialog.selectedFiles()
+            self.formulas = {}
+            for path in file_paths:
+                try:
+                    df = pd.read_excel(path)
+                    print(f"Datos de {path}:")
+                    print(df.head())  # Imprime las primeras filas del DataFrame
+                    self.formulas[path] = df
+                except Exception as e:
+                    print(f"Error al leer {path}: {e}")
+            self.populateComboBox()
+
+    def populateComboBox(self):
+        self.comboBox.clear()
+        self.comboBox.addItems([os.path.basename(f) for f in self.formulas.keys()])
+
+    def displayFormula(self):
+        if self.comboBox.currentText():
+            file_path = [k for k in self.formulas.keys() if os.path.basename(k) == self.comboBox.currentText()][0]
+            df = self.formulas[file_path]
+            print(f"Mostrando fórmula desde: {file_path}")
+            print(df)  # Imprime todo el DataFrame para ver qué datos se están cargando
+            if df is not None and not df.empty:
+                self.tableWidget.setRowCount(len(df))
+                self.tableWidget.setColumnCount(len(df.columns))
+                self.tableWidget.setHorizontalHeaderLabels(df.columns)
+
+                for i, row in df.iterrows():
+                    for j, value in enumerate(row):
+                        print(f"Estableciendo valor en ({i}, {j}): {value}")  # Depura el valor que se está estableciendo
+                        item = QTableWidgetItem(str(value))
+                        if j == df.columns.get_loc('Cantidad Utilizada'):  # "Cantidad Utilizada" (editable)
+                            if self.current_user == 'operador':
+                                item.setFlags(item.flags() | Qt.ItemIsEditable)
+                            else:
+                                item.setFlags(item.flags() | Qt.ItemIsEditable)  # Admin también puede editar
+                        else:
+                            item.setFlags(item.flags() & ~Qt.ItemIsEditable)  # No editable
+                        self.tableWidget.setItem(i, j, item)
+            else:
+                print("El DataFrame está vacío o no se cargó correctamente.")
+
+    def saveQuantities(self):
+        if self.comboBox.currentText():
+            file_path = [k for k in self.formulas.keys() if os.path.basename(k) == self.comboBox.currentText()][0]
+            df = self.formulas[file_path]
+            for i in range(self.tableWidget.rowCount()):
+                for j in range(self.tableWidget.columnCount()):
+                    item = self.tableWidget.item(i, j)
+                    if item is not None:
+                        df.iloc[i, j] = item.text()
+            df.to_excel(file_path, index=False)
+            print(f"Datos guardados en {file_path}")
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec_())

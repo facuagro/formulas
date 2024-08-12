@@ -1,0 +1,158 @@
+import sys
+import os
+import pandas as pd
+from PyQt5.QtWidgets import (
+    QApplication, QMainWindow, QFileDialog, QVBoxLayout, QWidget, QPushButton, QLabel, 
+    QComboBox, QTableWidget, QTableWidgetItem, QMessageBox, QInputDialog, QLineEdit
+)
+from PyQt5.QtGui import QIcon, QPixmap
+from PyQt5.QtCore import Qt, QDir
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle('Gestión de Fórmulas')
+        self.setGeometry(100, 100, 800, 600)
+        
+        # Set the window icon
+        self.setWindowIcon(QIcon('logo.png'))  # Assuming the logo file is in the same directory as main.py
+        
+        self.initUI()
+
+    def initUI(self):
+        layout = QVBoxLayout()
+
+        # Create a container widget for the logo and title
+        header_widget = QWidget()
+        header_layout = QVBoxLayout()
+        
+        # Load and resize the logo
+        logo_pixmap = QPixmap('logo.png')
+        logo_pixmap = logo_pixmap.scaled(200, 200, Qt.KeepAspectRatio)  # Adjust size as needed
+        logo_label = QLabel()
+        logo_label.setPixmap(logo_pixmap)
+        
+        # Add the logo and title to the header layout
+        title_label = QLabel('Gestión de Fórmulas')
+        title_label.setStyleSheet("font-size: 24px; font-weight: bold;")
+        
+        header_layout.addWidget(logo_label, alignment=Qt.AlignCenter)
+        header_layout.addWidget(title_label, alignment=Qt.AlignCenter)
+        header_widget.setLayout(header_layout)
+        
+        layout.addWidget(header_widget)
+
+        self.comboBox = QComboBox()
+        self.loadButton = QPushButton('Cargar Fórmulas')
+        self.saveButton = QPushButton('Guardar Cantidades')
+        self.tableWidget = QTableWidget()
+
+        self.loadButton.clicked.connect(self.loadFormulas)
+        self.saveButton.clicked.connect(self.saveQuantities)
+        self.comboBox.currentIndexChanged.connect(self.displayFormula)
+
+        layout.addWidget(QLabel('Selecciona una fórmula:'))
+        layout.addWidget(self.comboBox)
+        layout.addWidget(self.loadButton)
+        layout.addWidget(self.tableWidget)
+        layout.addWidget(self.saveButton)
+
+        container = QWidget()
+        container.setLayout(layout)
+        self.setCentralWidget(container)
+
+        self.formulas = {}
+        self.current_formula = None
+
+    def loadFormulas(self):
+        file_dialog = QFileDialog()
+        file_dialog.setFileMode(QFileDialog.ExistingFiles)
+        file_dialog.setNameFilters(["Excel files (*.xlsx)"])
+        file_dialog.setFilter(QDir.Files)
+        file_dialog.setOption(QFileDialog.DontUseNativeDialog, True)
+        if file_dialog.exec_():
+            file_paths = file_dialog.selectedFiles()
+            self.formulas = {}
+            for path in file_paths:
+                try:
+                    df = pd.read_excel(path)
+                    print(f"Datos de {path}:")
+                    print(df.head())  # Imprime las primeras filas del DataFrame
+                    self.formulas[path] = df
+                except Exception as e:
+                    print(f"Error al leer {path}: {e}")
+            self.populateComboBox()
+
+    def populateComboBox(self):
+        self.comboBox.clear()
+        self.comboBox.addItems([os.path.basename(f) for f in self.formulas.keys()])
+
+    def displayFormula(self):
+        if self.comboBox.currentText():
+            file_path = [k for k in self.formulas.keys() if os.path.basename(k) == self.comboBox.currentText()][0]
+            df = self.formulas[file_path]
+            print(f"Mostrando fórmula desde: {file_path}")
+            print(df)  # Imprime todo el DataFrame para ver qué datos se están cargando
+            if df is not None and not df.empty:
+                self.tableWidget.setRowCount(len(df))
+                self.tableWidget.setColumnCount(len(df.columns))
+                self.tableWidget.setHorizontalHeaderLabels(df.columns)
+
+                for i, row in df.iterrows():
+                    for j, value in enumerate(row):
+                        print(f"Estableciendo valor en ({i}, {j}): {value}")  # Depura el valor que se está estableciendo
+                        item = QTableWidgetItem(str(value))
+                        if j == df.columns.get_loc('Cantidad Utilizada') or j == df.columns.get_loc('LOTE'):  
+                            item.setFlags(item.flags() | Qt.ItemIsEditable)
+                        else:
+                            item.setFlags(item.flags() & ~Qt.ItemIsEditable)  # No editable
+                        self.tableWidget.setItem(i, j, item)
+
+    def saveQuantities(self):
+        if self.comboBox.currentText():
+            file_path = [k for k in self.formulas.keys() if os.path.basename(k) == self.comboBox.currentText()][0]
+            df = self.formulas[file_path]
+            for i in range(self.tableWidget.rowCount()):
+                for j in range(self.tableWidget.columnCount()):
+                    item = self.tableWidget.item(i, j)
+                    if item is not None:
+                        df.iloc[i, j] = item.text()
+            df.to_excel(file_path, index=False)
+            print(f"Datos guardados en {file_path}")
+
+    def closeEvent(self, event):
+        # La contraseña para cerrar la aplicación
+        correct_password = "tu_contraseña_segura"
+
+        # Mostrar cuadro de diálogo para pedir la contraseña
+        password, ok = QInputDialog.getText(self, 'Confirmar Salida', 'Introduce la contraseña para cerrar la aplicación:', QLineEdit.Password)
+
+        if ok and password == correct_password:
+            event.accept()  # Cierra la aplicacióna
+        else:
+            QMessageBox.warning(self, 'Contraseña Incorrecta', 'La contraseña introducida es incorrecta.')
+            event.ignore()  # Cancela el cierre de la aplicación
+
+def excepthook(exc_type, exc_value, exc_traceback):
+    error_msg = f"{exc_type.__name__}: {exc_value}"
+    print(error_msg)
+
+    # Create a message box to show the error to the user
+    msg = QMessageBox()
+    msg.setIcon(QMessageBox.Critical)
+    msg.setWindowTitle('Error Crítico')
+    msg.setText('Ocurrió un error crítico en la aplicación.')
+    msg.setInformativeText(error_msg)
+    msg.setStandardButtons(QMessageBox.Ok)
+    msg.exec_()
+
+    # Do not exit the application
+    # sys.exit(1)  # Uncomment this line if you want to close the application on error
+
+if __name__ == '__main__':
+    sys.excepthook = excepthook  # Hook the exception handler to avoid crashes
+
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec_())
